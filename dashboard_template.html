@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>A股情绪看板</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: { colors: {
+      ink: '#0b1020', card: '#141a2e', line: '#243052',
+      up: '#f6465d', down: '#2ebd85', accent: '#5b8cff', warn: '#f0b90b'
+    } } }
+  };
+</script>
+<style>
+  /* 仅放 Tailwind 无法表达的部分 */
+  body { -webkit-tap-highlight-color: transparent; }
+  .num { font-variant-numeric: tabular-nums; }
+  .fade-in { animation: fadeIn .35s ease both; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } }
+</style>
+</head>
+<body class="min-h-screen bg-ink text-slate-200 antialiased">
+
+<!-- #region 页面结构 -->
+<main class="mx-auto w-full max-w-screen-lg px-3 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+
+  <!-- #region 头部：日期与总分 -->
+  <header class="mb-3 flex items-end justify-between gap-3">
+    <div>
+      <h1 class="text-lg font-semibold tracking-tight">A股情绪看板</h1>
+      <p class="mt-0.5 text-xs text-slate-400" id="meta-line">—</p>
+    </div>
+    <button id="btn-refresh" class="min-h-11 min-w-11 rounded-xl border border-line bg-card px-3 text-xs text-slate-300 hover:bg-[#1b2340] focus:outline-none focus:ring-2 focus:ring-accent/60">
+      更新数据
+    </button>
+  </header>
+  <!-- #endregion -->
+
+  <!-- #region 核心：情绪 / 恐慌 双指标 -->
+  <section class="fade-in mb-3 grid grid-cols-2 gap-3">
+    <div class="rounded-2xl border border-line bg-card p-3">
+      <div class="flex items-center justify-between text-xs text-slate-400">
+        <span>收盘情绪</span><span id="score-delta" class="num">—</span>
+      </div>
+      <div class="mt-2 flex items-center gap-3">
+        <div id="gauge-score" class="relative h-[84px] w-[84px] shrink-0"></div>
+        <div>
+          <div id="score-value" class="num text-2xl font-semibold leading-none">—</div>
+          <div id="score-label" class="mt-1 text-xs">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="rounded-2xl border border-line bg-card p-3">
+      <div class="flex items-center justify-between text-xs text-slate-400">
+        <span>恐慌指数</span><span class="text-slate-500">越高越恐慌</span>
+      </div>
+      <div class="mt-2 flex items-center gap-3">
+        <div id="gauge-panic" class="relative h-[84px] w-[84px] shrink-0"></div>
+        <div>
+          <div id="panic-value" class="num text-2xl font-semibold leading-none">—</div>
+          <div id="panic-label" class="mt-1 text-xs">—</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="mb-3 rounded-2xl border border-line bg-card px-3 py-2.5">
+    <div class="flex items-center justify-between gap-2">
+      <span class="text-xs text-slate-400">组合定位</span>
+      <span id="regime" class="rounded-full px-2.5 py-1 text-xs font-medium">—</span>
+    </div>
+  </div>
+  <!-- #endregion -->
+
+  <!-- #region 组件：四维拆解 -->
+  <section class="fade-in mb-3 rounded-2xl border border-line bg-card p-3">
+    <div class="mb-2 flex items-center justify-between">
+      <h2 class="text-sm font-medium">情绪四维</h2>
+      <span class="text-[10px] text-slate-500 text-xs">加权构成总分</span>
+    </div>
+    <div id="dims" class="space-y-2"></div>
+  </section>
+  <!-- #endregion -->
+
+  <!-- #region 组件：恐慌拆解 -->
+  <section class="fade-in mb-3 rounded-2xl border border-line bg-card p-3">
+    <div class="mb-2 flex items-center justify-between">
+      <h2 class="text-sm font-medium">恐慌指数拆解</h2>
+      <span class="text-xs text-slate-500">0 平静 · 100 极度恐慌</span>
+    </div>
+    <div id="panic-parts" class="space-y-2"></div>
+    <div id="panic-chips" class="mt-2 flex flex-wrap gap-1.5"></div>
+  </section>
+  <!-- #endregion -->
+
+  <!-- #region 组件：指数行情 -->
+  <section class="fade-in mb-3 rounded-2xl border border-line bg-card p-3">
+    <div class="mb-2 flex items-center justify-between">
+      <h2 class="text-sm font-medium">指数行情</h2>
+      <span id="breadth-note" class="text-xs text-slate-500">—</span>
+    </div>
+    <div id="indices" class="grid grid-cols-2 gap-2 sm:grid-cols-3"></div>
+  </section>
+  <!-- #endregion -->
+
+  <!-- #region 组件：历史趋势 -->
+  <section class="fade-in mb-3 rounded-2xl border border-line bg-card p-3">
+    <div class="mb-2 flex items-center justify-between">
+      <h2 class="text-sm font-medium">情绪与恐慌 · 近段走势</h2>
+      <span id="trend-note" class="text-xs text-slate-500">—</span>
+    </div>
+    <div id="trend-chart" class="h-[132px] w-full"></div>
+    <div class="mt-1 flex gap-4 text-xs text-slate-400">
+      <span class="flex items-center gap-1"><i class="inline-block h-0.5 w-4 rounded bg-accent"></i>情绪分</span>
+      <span class="flex items-center gap-1"><i class="inline-block h-0.5 w-4 rounded bg-warn"></i>恐慌指数</span>
+    </div>
+  </section>
+  <!-- #endregion -->
+
+  <!-- #region 组件：社交情绪 -->
+  <section class="fade-in mb-3 rounded-2xl border border-line bg-card p-3">
+    <div class="mb-2 flex items-center justify-between">
+      <h2 class="text-sm font-medium">社交情绪</h2>
+      <span id="social-source" class="text-xs text-slate-500">—</span>
+    </div>
+    <div id="social-list" class="space-y-2"></div>
+    <p id="social-digest" class="mt-2 hidden rounded-xl border border-line/70 bg-[#101728] px-2.5 py-2 text-xs leading-relaxed text-slate-300"></p>
+    <p id="social-note" class="mt-2 text-xs leading-relaxed text-slate-400"></p>
+  </section>
+  <!-- #endregion -->
+
+  <!-- #region 组件：自定义事件追踪（可增删） -->
+  <section class="mb-3">
+    <div class="mb-2 flex items-center justify-between px-1">
+      <h2 class="text-sm font-medium">自定义事件追踪</h2>
+      <span class="text-xs text-slate-500">关键词热度 + 最新催化</span>
+    </div>
+    <div id="events" class="grid gap-3 sm:grid-cols-2"></div>
+  </section>
+  <!-- #endregion -->
+
+  <!-- #region 结论与口径 -->
+  <section class="fade-in mb-3 rounded-2xl border border-line bg-card p-3">
+    <h2 class="mb-1.5 text-sm font-medium">一句话结论</h2>
+    <p id="conclusion" class="text-sm leading-relaxed text-slate-300"></p>
+  </section>
+
+  <section class="rounded-2xl border border-line/60 bg-card/50 p-3">
+    <h2 class="mb-1 text-xs font-medium text-slate-400">数据口径</h2>
+    <ul id="method" class="space-y-1 text-xs leading-relaxed text-slate-500"></ul>
+  </section>
+  <!-- #endregion -->
+
+</main>
+<!-- #endregion -->
+
+<!-- #region 数据区（由构建脚本注入，勿手改结构） -->
+<script id="DATA" type="application/json">__DATA_JSON__</script>
+<!-- #endregion -->
+
+<script>
+(function () {
+  'use strict';
+
+  // ===== CONFIG：可调参数集中于此 =====
+  const CONFIG = {
+    ring: { size: 84, stroke: 8 },
+    colors: { up: '#f6465d', down: '#2ebd85', accent: '#5b8cff', warn: '#f0b90b', track: '#243052' },
+    // 情绪分 → 颜色：越低越冷，越高越热
+    scoreColor(v) {
+      if (v == null) return CONFIG.colors.track;
+      if (v >= 62) return CONFIG.colors.up;
+      if (v >= 45) return '#e0e7ff';
+      if (v >= 28) return '#93b4ff';
+      return '#5b8cff';
+    },
+    // 恐慌分 → 颜色：越高越警示
+    panicColor(v) {
+      if (v == null) return CONFIG.colors.track;
+      if (v >= 75) return '#ff4d4f';
+      if (v >= 58) return '#ff9f40';
+      if (v >= 42) return '#f0b90b';
+      return '#2ebd85';
+    },
+    regimeTone: {
+      '恐慌抛售': 'bg-[#3a1220] text-[#ff6b81] border border-[#ff6b81]/40',
+      '阴跌磨人': 'bg-[#1c2440] text-[#9db4ff] border border-[#9db4ff]/30',
+      '剧烈分歧': 'bg-[#2e2410] text-[#f0b90b] border border-[#f0b90b]/30',
+      '平稳观望': 'bg-[#182036] text-slate-300 border border-line',
+      '温和走强': 'bg-[#10241c] text-[#2ebd85] border border-[#2ebd85]/30',
+      '急涨亢奋': 'bg-[#2a1220] text-[#ff6b81] border border-[#ff6b81]/40'
+    },
+    copyPrompt: (ev) => `帮我用大模型检索并追踪「${ev.name}」最近 7 天的趋势：关键数据变化、驱动因素、市场预期分歧，以及未来 2 周需要盯的节点。`
+  };
+
+  // ===== STATE =====
+  const state = { data: null };
+
+  // ===== DOM =====
+  const dom = {
+    metaLine: document.getElementById('meta-line'),
+    scoreValue: document.getElementById('score-value'),
+    scoreLabel: document.getElementById('score-label'),
+    scoreDelta: document.getElementById('score-delta'),
+    panicValue: document.getElementById('panic-value'),
+    panicLabel: document.getElementById('panic-label'),
+    gaugeScore: document.getElementById('gauge-score'),
+    gaugePanic: document.getElementById('gauge-panic'),
+    regime: document.getElementById('regime'),
+    dims: document.getElementById('dims'),
+    panicParts: document.getElementById('panic-parts'),
+    panicChips: document.getElementById('panic-chips'),
+    indices: document.getElementById('indices'),
+    breadthNote: document.getElementById('breadth-note'),
+    trendChart: document.getElementById('trend-chart'),
+    trendNote: document.getElementById('trend-note'),
+    socialList: document.getElementById('social-list'),
+    socialNote: document.getElementById('social-note'),
+    socialSource: document.getElementById('social-source'),
+    socialDigest: document.getElementById('social-digest'),
+    events: document.getElementById('events'),
+    conclusion: document.getElementById('conclusion'),
+    method: document.getElementById('method'),
+    refresh: document.getElementById('btn-refresh')
+  };
+
+  // ===== UTILS =====
+  const clamp = (v, a = 0, b = 100) => Math.max(a, Math.min(b, v));
+  const fmt = (v, d = 1) => (v == null || Number.isNaN(v)) ? '—' : Number(v).toFixed(d);
+  const pctTxt = (v, d = 2) => (v == null) ? '—' : (v > 0 ? '+' : '') + Number(v).toFixed(d) + '%';
+  const toneClass = (v) => v == null ? 'text-slate-400' : (v > 0 ? 'text-up' : (v < 0 ? 'text-down' : 'text-slate-400'));
+
+  function svgEl(tag, attrs) {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    Object.entries(attrs || {}).forEach(([k, v]) => el.setAttribute(k, v));
+    return el;
+  }
+
+  // ===== RENDER：环形仪表 =====
+  function renderRing(host, value, color, caption) {
+    const { size, stroke } = CONFIG.ring;
+    const r = (size - stroke) / 2;
+    const c = 2 * Math.PI * r;
+    host.innerHTML = '';
+    const svg = svgEl('svg', { viewBox: `0 0 ${size} ${size}`, class: 'h-full w-full -rotate-90' });
+    svg.appendChild(svgEl('circle', {
+      cx: size / 2, cy: size / 2, r, fill: 'none',
+      stroke: CONFIG.colors.track, 'stroke-width': stroke
+    }));
+    const v = value == null ? 0 : clamp(value);
+    const arc = svgEl('circle', {
+      cx: size / 2, cy: size / 2, r, fill: 'none', stroke: color,
+      'stroke-width': stroke, 'stroke-linecap': 'round',
+      'stroke-dasharray': `${(c * v) / 100} ${c}`
+    });
+    svg.appendChild(arc);
+    host.appendChild(svg);
+    const label = document.createElement('div');
+    label.className = 'pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-slate-500';
+    label.textContent = caption;
+    host.appendChild(label);
+  }
+
+  // ===== RENDER：进度条 =====
+  function barRow(name, weight, value, color) {
+    const wrap = document.createElement('div');
+    const w = weight ? `<span class="ml-1 text-xs text-slate-500">${Math.round(weight * 100)}%</span>` : '';
+    wrap.innerHTML = `
+      <div class="flex items-center justify-between text-xs">
+        <span class="text-slate-300">${name}${w}</span>
+        <span class="num text-slate-400">${fmt(value)}</span>
+      </div>
+      <div class="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-line">
+        <div class="h-full rounded-full" style="width:${value == null ? 0 : clamp(value)}%;background:${color}"></div>
+      </div>`;
+    return wrap;
+  }
+
+  // ===== RENDER：指数卡 =====
+  function renderIndices(list) {
+    dom.indices.innerHTML = '';
+    list.forEach((it) => {
+      const div = document.createElement('div');
+      div.className = 'rounded-xl border border-line/70 bg-[#101728] px-2.5 py-2';
+      div.innerHTML = `
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-slate-400">${it.name}</span>
+          <span class="num text-xs ${toneClass(it.pct)}">${pctTxt(it.pct)}</span>
+        </div>
+        <div class="num mt-1 text-base font-medium ${toneClass(it.pct)}">${fmt(it.close, 2)}</div>`;
+      dom.indices.appendChild(div);
+    });
+  }
+
+  // ===== RENDER：趋势图 =====
+  function renderTrend(series) {
+    const host = dom.trendChart;
+    host.innerHTML = '';
+    if (!series || series.length === 0) {
+      host.innerHTML = '<div class="flex h-full items-center justify-center text-xs text-slate-500">暂无历史数据</div>';
+      return;
+    }
+    const W = host.clientWidth || 320, H = host.clientHeight || 132;
+    const pad = { l: 6, r: 6, t: 10, b: 16 };
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'h-full w-full' });
+    [0, 50, 100].forEach((g) => {
+      const y = pad.t + (H - pad.t - pad.b) * (1 - g / 100);
+      svg.appendChild(svgEl('line', {
+        x1: pad.l, y1: y, x2: W - pad.r, y2: y,
+        stroke: '#1e2743', 'stroke-width': 1, 'stroke-dasharray': g === 50 ? '3 3' : '0'
+      }));
+    });
+    const n = series.length;
+    const xAt = (i) => n === 1 ? W / 2 : pad.l + (W - pad.l - pad.r) * (i / (n - 1));
+    const yAt = (v) => pad.t + (H - pad.t - pad.b) * (1 - clamp(v == null ? 50 : v) / 100);
+    const line = (key, color) => {
+      const pts = series.map((p, i) => [xAt(i), yAt(p[key])]);
+      const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+      svg.appendChild(svgEl('path', { d, fill: 'none', stroke: color, 'stroke-width': 2, 'stroke-linejoin': 'round' }));
+      pts.forEach((p, i) => {
+        svg.appendChild(svgEl('circle', { cx: p[0], cy: p[1], r: 2.6, fill: color }));
+        if (i === 0 || i === pts.length - 1) {
+          const t = svgEl('text', {
+            x: p[0], y: H - 4, fill: '#64748b', 'font-size': 9,
+            'text-anchor': i === 0 ? 'start' : 'end'
+          });
+          t.textContent = series[i].date.slice(5);
+          svg.appendChild(t);
+        }
+      });
+    };
+    line('score', CONFIG.colors.accent);
+    line('panic', CONFIG.colors.warn);
+    host.appendChild(svg);
+  }
+
+  // ===== RENDER：社交 =====
+  function renderSocial(social) {
+    dom.socialList.innerHTML = '';
+    if (!social || !social.items || social.items.length === 0) {
+      dom.socialList.innerHTML = `<div class="text-xs text-slate-500">${(social && social.empty_text) || '暂无条目'}</div>`;
+    } else {
+      social.items.forEach((it) => {
+        const row = document.createElement('div');
+        row.className = 'flex items-start gap-2 rounded-xl border border-line/70 bg-[#101728] px-2.5 py-2';
+        row.innerHTML = `
+          <span class="num mt-0.5 w-6 shrink-0 text-xs text-slate-500">#${it.rank}</span>
+          <div class="min-w-0">
+            <p class="truncate text-xs text-slate-200">${it.word}</p>
+            <p class="num mt-0.5 text-xs text-slate-500">热度 ${it.heat}${it.note ? ' · ' + it.note : ''}</p>
+          </div>`;
+        dom.socialList.appendChild(row);
+      });
+    }
+    if (social && social.digest) {
+      dom.socialDigest.textContent = social.digest;
+      dom.socialDigest.classList.remove('hidden');
+    } else {
+      dom.socialDigest.classList.add('hidden');
+    }
+    dom.socialNote.textContent = (social && social.note) || '';
+    dom.socialSource.textContent = (social && social.source) || '—';
+  }
+
+  // ===== RENDER：自定义事件 =====
+  function renderEvents(events) {
+    dom.events.innerHTML = '';
+    (events || []).forEach((ev) => {
+      const card = document.createElement('div');
+      card.className = 'fade-in rounded-2xl border border-line bg-card p-3';
+      const tone = ev.direction === 'up' ? 'text-up' : (ev.direction === 'down' ? 'text-down' : 'text-slate-300');
+      const counts = ev.counts || [];
+      const maxC = Math.max(1, ...counts.map((c) => c[1]));
+      const bars = counts.map((c) => `
+        <div class="flex-1">
+          <div class="mx-auto w-full rounded-sm bg-accent/70" style="height:${Math.max(3, (c[1] / maxC) * 34)}px"></div>
+        </div>`).join('');
+      const spark = ev.spark
+        ? `<div class="num mt-1 text-xs text-slate-500">${ev.spark}</div>` : '';
+      const headlines = (ev.headlines || []).map((h) => `
+        <li class="flex gap-1.5 text-xs leading-relaxed text-slate-400">
+          <span class="num shrink-0 text-slate-500">${h.t}</span><span>${h.c}</span>
+        </li>`).join('');
+      card.innerHTML = `
+        <div class="flex items-start justify-between gap-2">
+          <div>
+            <h3 class="text-sm font-medium text-slate-100">${ev.name}</h3>
+            <p class="mt-0.5 text-xs text-slate-500">${ev.subtitle || ''}</p>
+          </div>
+          <button data-prompt="${escapeAttr(CONFIG.copyPrompt(ev))}"
+                  class="min-h-11 shrink-0 rounded-xl border border-line bg-[#101728] px-2.5 text-xs text-slate-300 hover:bg-[#1b2340] focus:outline-none focus:ring-2 focus:ring-accent/60">
+            让 Agent 深挖
+          </button>
+        </div>
+        <div class="mt-2 flex items-baseline gap-2">
+          <span class="num text-xl font-semibold ${tone}">${ev.value || '—'}</span>
+          <span class="text-xs text-slate-500">${ev.label || ''}</span>
+        </div>
+        ${spark}
+        <div class="mt-2 flex h-[38px] items-end gap-[3px]">${bars}</div>
+        <div class="mt-1 flex justify-between text-xs text-slate-500">
+          <span>${counts.length ? counts[0][0].slice(5) : ''}</span>
+          <span>${counts.length ? counts[counts.length - 1][0].slice(5) : ''}</span>
+        </div>
+        <p class="mt-2 text-xs leading-relaxed text-slate-400">${ev.comment || ''}</p>
+        <ul class="mt-2 space-y-1">${headlines}</ul>`;
+      dom.events.appendChild(card);
+    });
+  }
+
+  function escapeAttr(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  }
+
+  // ===== RENDER：整页 =====
+  function render() {
+    const d = state.data;
+    if (!d) return;
+
+    dom.metaLine.textContent = `${d.meta.date} 收盘 · 生成于 ${d.meta.generated_at.slice(11, 16)} · 数据源 ${d.meta.sources}`;
+
+    dom.scoreValue.textContent = fmt(d.core.score);
+    dom.scoreLabel.textContent = d.core.label || '—';
+    dom.scoreLabel.className = 'mt-1 text-xs ' + (d.core.score >= 45 ? 'text-slate-300' : 'text-accent');
+    dom.panicValue.textContent = fmt(d.core.panic);
+    dom.panicLabel.textContent = d.core.panic_label || '—';
+    dom.panicLabel.className = 'mt-1 text-xs text-slate-400';
+    dom.scoreDelta.textContent = d.core.delta == null ? '—'
+      : `${d.core.delta > 0 ? '↑' : (d.core.delta < 0 ? '↓' : '→')} ${Math.abs(d.core.delta).toFixed(1)}`;
+    dom.scoreDelta.className = 'num ' + (d.core.delta == null ? 'text-slate-500'
+      : (d.core.delta < 0 ? 'text-down' : 'text-up'));
+
+    renderRing(dom.gaugeScore, d.core.score, CONFIG.scoreColor(d.core.score), '');
+    renderRing(dom.gaugePanic, d.core.panic, CONFIG.panicColor(d.core.panic), '');
+
+    const r = dom.regime;
+    r.textContent = d.core.regime || '—';
+    r.className = 'rounded-full px-2.5 py-1 text-xs font-medium ' +
+      (CONFIG.regimeTone[d.core.regime] || 'bg-[#182036] text-slate-300 border border-line');
+
+    dom.dims.innerHTML = '';
+    d.dims.forEach((x) => dom.dims.appendChild(
+      barRow(x.name, x.weight, x.score, x.score == null ? CONFIG.colors.track : CONFIG.colors.accent)
+    ));
+
+    dom.panicParts.innerHTML = '';
+    (d.panic_parts || []).forEach((x) => dom.panicParts.appendChild(
+      barRow(x.name, x.weight, x.score, CONFIG.panicColor(x.score))
+    ));
+
+    dom.panicChips.innerHTML = (d.context || []).map((c) =>
+      `<span class="rounded-full border border-line bg-[#101728] px-2 py-1 text-xs text-slate-400">${c}</span>`
+    ).join('');
+
+    renderIndices(d.indices);
+    dom.breadthNote.textContent = d.breadth_note || '';
+
+    renderTrend(d.trend);
+    dom.trendNote.textContent = (d.trend && d.trend.length) ? `${d.trend.length} 个交易日` : '—';
+
+    renderSocial(d.social);
+    renderEvents(d.events);
+    dom.conclusion.textContent = d.conclusion || '—';
+    dom.method.innerHTML = (d.method || []).map((m) => `<li>· ${m}</li>`).join('');
+  }
+
+  // ===== LOGIC =====
+  function loadData() {
+    const raw = document.getElementById('DATA').textContent;
+    try { state.data = JSON.parse(raw); } catch (e) { state.data = null; }
+  }
+
+  // ===== INPUT =====
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    return Promise.resolve();
+  }
+
+  function bindEvents() {
+    // 事件卡：让 Agent 深挖（点击 = 移动端 tap / PC 点击，均可）
+    dom.events.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-prompt]');
+      if (!btn) return;
+      const text = btn.getAttribute('data-prompt');
+      const old = btn.textContent;
+      copyText(text).then(() => {
+        btn.textContent = '已复制，粘给 Amoo';
+        setTimeout(() => { btn.textContent = old; }, 1600);
+      });
+    });
+
+    // 刷新：重新读取页面内嵌数据（数据由构建脚本更新）
+    dom.refresh.addEventListener('click', () => {
+      dom.refresh.textContent = '数据由每日构建更新';
+      setTimeout(() => { dom.refresh.textContent = '更新数据'; }, 1800);
+    });
+
+    // 尺寸变化重绘趋势图
+    let t = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(t);
+      t = setTimeout(() => renderTrend(state.data && state.data.trend), 180);
+    });
+  }
+
+  // ===== INIT =====
+  function init() {
+    loadData();
+    if (!state.data) {
+      dom.conclusion.textContent = '数据未注入，请用构建脚本重新生成页面。';
+      return;
+    }
+    render();
+    bindEvents();
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+</body>
+</html>

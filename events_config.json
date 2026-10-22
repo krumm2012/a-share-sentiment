@@ -1,0 +1,27 @@
+{
+  "_readme": "自定义事件追踪配置：新增一个事件就往 events 里加一个对象即可。keywords 用于金十快讯热度统计；quote 填金十行情代码可选；static 用于放不可自动拉取的指标（需写 as_of）。",
+  "events": [
+    {
+      "id": "gold",
+      "name": "黄金",
+      "subtitle": "现货黄金 XAUUSD · 金十行情 + 快讯热度",
+      "keywords": ["黄金", "金价"],
+      "quote": "XAUUSD",
+      "direction_from_quote": true,
+      "comment": "金价与加息预期高度反向：加息预期走强会压制无息资产估值，同时避险需求又在托底，两条力量拉扯时波动会先放大。"
+    },
+    {
+      "id": "fed_dec",
+      "name": "Fed 12 月加息预期",
+      "subtitle": "CME FedWatch · 12 月议息会议定价",
+      "keywords": ["美联储", "加息"],
+      "static": {
+        "value": "90.2%",
+        "label": "12 月累计加息概率（25bp 76.0% + 50bp 14.2%）",
+        "as_of": "2026-10-22",
+        "direction": "up"
+      },
+      "comment": "10 月大概率按兵不动（维持不变概率 83.9%），但 12 月加息定价高企：预期并未消退，只是时点后移。盯 10 月 27—28 日议息会议的措辞变化。"
+    }
+  ]
+}
