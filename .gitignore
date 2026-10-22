@@ -2,3 +2,4 @@ __pycache__/
 mx_cache.json
 *.pyc
 .DS_Store
+.pipeline_report.md
