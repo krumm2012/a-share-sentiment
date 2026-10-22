@@ -15,6 +15,8 @@
 | `events_config.json` | 自定义事件追踪配置（黄金、Fed 加息预期…），加事件只改这里 |
 | `daily_notes.json` | 每日人工补充的结论 / 社媒摘要，按日期 key |
 | `sentiment_history.jsonl` | 每日一行历史快照 |
+| `pipeline.sh` | 完整流水线：情绪采集 → 重建看板 → 写飞书 → 提交 GitHub |
+| `push_github.py` | 走 Git Data API 提交到 GitHub（规避 git 直连超时） |
 
 ## 情绪模型
 
@@ -67,6 +69,27 @@ python3 push_feishu.py --dry-run
 python3 build_dashboard.py
 python3 build_dashboard.py --offline   # 只用本地缓存/历史
 ```
+
+## 完整流水线
+
+```bash
+bash pipeline.sh                 # 四步全跑
+bash pipeline.sh --skip-github   # 跳过 GitHub 提交
+bash pipeline.sh --offline       # 看板只用本地缓存重建
+```
+
+四步各自独立判定成败，任一步失败不影响后续；最后输出一行 JSON 汇总：
+
+```json
+{"ok": true, "steps": {"sentiment":"ok","dashboard":"ok","feishu":"ok","github":"ok"},
+ "headline": "2026-10-22 收盘情绪 · 13.9 分（极度悲观）｜恐慌指数 78.00（极度恐慌）"}
+```
+
+GitHub 提交走 `api.github.com` 的 Git Data API（blob → tree → commit → 更新 ref）。
+云端到 `github.com:443` 的 git 直连会超时，故不用 `git push`。
+
+Token 读取顺序：环境变量 `GH_TOKEN` → `~/.config/a-share-sentiment/github_token`（权限 600）。
+凭证不写入仓库，也不进入任何提交内容。
 
 ## 配置
 
