@@ -185,6 +185,14 @@ def build(offline=False):
     import sentiment as S
 
     d = S.build() if not offline else {}
+    if not d:
+        # 离线/数据源不可用时，回退到本地当日快照（多渠道核对后的成品）
+        try:
+            snap = json.load(open(os.path.join(HERE, ".corrected.json"), encoding="utf-8"))
+            if snap.get("date") == dt.date.today().isoformat():
+                d = snap
+        except Exception:
+            d = {}
     hist = S.load_history()
     rows = [{k: r.get(k) for k in ("date", "score", "panic")} for r in hist]
 

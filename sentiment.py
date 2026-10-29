@@ -164,11 +164,30 @@ def num(v):
     return float(m.group()) if m else None
 
 
+
+def fetch_index_today(full, day_iso):
+    """按指定日期精确取单日收盘价/涨跌幅/成交额，避免区间表错位"""
+    try:
+        rows = flatten(mx_data(f"{full}{day_iso}收盘价、涨跌幅、成交额"))
+    except Exception:
+        return None, None, None
+    for r in rows:
+        c, p = num(r.get("收盘价")), num(r.get("涨跌幅"))
+        if c is not None and p is not None:
+            return c, p, r.get("成交额")
+    return None, None, None
+
+
 def fetch_market():
     m = {"indices": {}}
     for short, full in INDEX_LIST:
         # 一次查询同时取「收盘价、涨跌幅」，返回多行时取同时具备两项的那行
         close = pct = amt = None
+        close, pct, amt = fetch_index_today(full, dt.date.today().isoformat())
+        if close is not None and pct is not None:
+            m["indices"][short] = {"name": full, "close": close, "pct": pct,
+                                   "amount": amt, "date": dt.date.today().isoformat()}
+            continue
         try:
             rows = flatten(mx_data(f"{full}今日收盘价、涨跌幅"))
             for r in rows:
@@ -217,6 +236,9 @@ def fetch_market():
     try:
         for r in flatten(mx_data("今日A股主力资金净流入")):
             for k, v in r.items():
+                if "区间" in str(k):
+                    # 返回的是区间累计值，非当日净流入，不能当当日指标用
+                    continue
                 if "净流入" in k and num(v) is not None:
                     m["main_flow"] = num(v)
                     m["main_flow_txt"] = str(v)
