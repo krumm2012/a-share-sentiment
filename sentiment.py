@@ -168,12 +168,12 @@ def num(v):
 def fetch_index_today(full, day_iso):
     """按指定日期精确取单日收盘价/涨跌幅/成交额，避免区间表错位"""
     try:
-        rows = flatten(mx_data(f"{full}{day_iso}收盘价、涨跌幅、成交额"))
+        rows = flatten(mx_data(f"{full}{day_iso}收盘点位、涨跌幅、成交额"))
     except Exception:
         return None, None, None
     best = [None, None, None]
     for r in rows:
-        c, p = num(r.get("收盘价")), num(r.get("涨跌幅"))
+        c, p = num(r.get("收盘价") or r.get("收盘点位")), num(r.get("涨跌幅"))
         if p is not None and best[1] is None:
             best = [c, p, r.get("成交额")]
         if c is not None and p is not None:
@@ -192,16 +192,16 @@ def fetch_market():
                                    "amount": amt, "date": dt.date.today().isoformat()}
             continue
         try:
-            rows = flatten(mx_data(f"{full}今日收盘价、涨跌幅"))
+            rows = flatten(mx_data(f"{full}今日收盘点位、涨跌幅"))
             for r in rows:
-                c, p = num(r.get("收盘价")), num(r.get("涨跌幅"))
+                c, p = num(r.get("收盘价") or r.get("收盘点位")), num(r.get("涨跌幅"))
                 if c is not None and p is not None:
                     close, pct = c, p
                     break
             if close is None:
                 for r in rows:
                     if close is None:
-                        close = num(r.get("收盘价"))
+                        close = num(r.get("收盘价") or r.get("收盘点位"))
                     if pct is None:
                         pct = num(r.get("涨跌幅"))
         except Exception:
@@ -498,7 +498,8 @@ def render(d, prev=None):
     for short, _ in INDEX_LIST:
         v = d["indices"].get(short)
         if v:
-            L.append(f"| {v['name']} | {v['close']:.2f} | {v['pct']:+.2f}% | {v.get('amount') or '—'} |")
+            cl = f"{v['close']:.2f}" if v.get("close") is not None else "—"
+            L.append(f"| {v['name']} | {cl} | {v['pct']:+.2f}% | {v.get('amount') or '—'} |")
     if d["momentum_score"] is None:
         L += ["", "> 注意：行情数据缺失（非交易日或数据源未响应），本次分数主要由快讯语义决定，仅作参考。"]
     L += ["", "**情绪四维**", "", "| 维度 | 得分 | 依据 |", "|---|---|---|"]
