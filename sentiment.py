@@ -222,38 +222,41 @@ def fetch_market():
                                        "amount": amt, "date": day}
         except Exception:
             pass
-    # 补齐缺失的收盘点位：一次查多指数，按实体名对齐
-    missing = [sh for sh, _ in INDEX_LIST
-               if m["indices"].get(sh) and m["indices"][sh].get("close") is None]
-    if missing:
-        try:
-            obj = mx_data("上证指数、深证成指、创业板指、科创50、北证50今日收盘点位")
-            dtos = obj["upstreamResponse"]["data"]["searchDataResultDTO"]["dataTableDTOList"]
-        except Exception:
-            dtos = []
-        for dto in dtos:
-            nmap = dto.get("nameMap") or {}
-            raw = dto.get("rawTable") or {}
-            heads = raw.get("headName") or []
-            if len(heads) < 2:
+    # 补齐缺失的收盘点位：逐指数取「今日收盘点位」
+    for sh, full in INDEX_LIST:
+        v = m["indices"].get(sh)
+        if not v or v.get("close") is not None:
+            continue
+        for q in (f"{full}今日收盘点位", f"{full}最新价"):
+            try:
+                rows = flatten(mx_data(q))
+            except Exception:
                 continue
-            for k, lab in nmap.items():
-                if "收盘" not in str(lab) and "点位" not in str(lab):
-                    continue
-                vals = raw.get(k) or []
-                for i, h in enumerate(heads):
-                    if i >= len(vals):
-                        continue
-                    v = num(vals[i])
-                    if v is None:
-                        continue
-                    for sh, full in INDEX_LIST:
-                        if sh in missing and str(h).startswith(full):
-                            m["indices"][sh]["close"] = v
-        for sh in missing:
-            v = m["indices"].get(sh)
-            if v and v.get("close") is None:
-                m["indices"][sh] = v  # 保持原样，渲染成 —
+            got = None
+            for r in rows:
+                got = num(r.get("收盘价") or r.get("收盘点位") or r.get("最新价"))
+                if got is not None:
+                    break
+            if got is not None:
+                v["close"] = got
+                break
+
+    # 仍缺收盘点位时，从金十收盘快讯里解析「报 XXXX.XX 点」
+    need = [sh for sh, _ in INDEX_LIST
+            if m["indices"].get(sh) and m["indices"][sh].get("close") is None]
+    if need:
+        try:
+            raw = only_today(jin10_flash(["A股收评", "收盘"]), dt.date.today().isoformat())
+        except Exception:
+            raw = []
+        text = " ".join(i["content"] for i in raw)
+        for sh, full in INDEX_LIST:
+            if sh not in need:
+                continue
+            pat = full + r"[^。]{0,80}?报\s*([\d.]+)\s*点"
+            mm = re.search(pat, text)
+            if mm:
+                m["indices"][sh]["close"] = float(mm.group(1))
 
     try:
         for r in flatten(mx_data("今日A股上涨家数、下跌家数")):
