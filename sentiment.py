@@ -222,6 +222,39 @@ def fetch_market():
                                        "amount": amt, "date": day}
         except Exception:
             pass
+    # 补齐缺失的收盘点位：一次查多指数，按实体名对齐
+    missing = [sh for sh, _ in INDEX_LIST
+               if m["indices"].get(sh) and m["indices"][sh].get("close") is None]
+    if missing:
+        try:
+            obj = mx_data("上证指数、深证成指、创业板指、科创50、北证50今日收盘点位")
+            dtos = obj["upstreamResponse"]["data"]["searchDataResultDTO"]["dataTableDTOList"]
+        except Exception:
+            dtos = []
+        for dto in dtos:
+            nmap = dto.get("nameMap") or {}
+            raw = dto.get("rawTable") or {}
+            heads = raw.get("headName") or []
+            if len(heads) < 2:
+                continue
+            for k, lab in nmap.items():
+                if "收盘" not in str(lab) and "点位" not in str(lab):
+                    continue
+                vals = raw.get(k) or []
+                for i, h in enumerate(heads):
+                    if i >= len(vals):
+                        continue
+                    v = num(vals[i])
+                    if v is None:
+                        continue
+                    for sh, full in INDEX_LIST:
+                        if sh in missing and str(h).startswith(full):
+                            m["indices"][sh]["close"] = v
+        for sh in missing:
+            v = m["indices"].get(sh)
+            if v and v.get("close") is None:
+                m["indices"][sh] = v  # 保持原样，渲染成 —
+
     try:
         for r in flatten(mx_data("今日A股上涨家数、下跌家数")):
             up, dn = num(r.get("上涨家数")), num(r.get("下跌家数"))
