@@ -171,11 +171,14 @@ def fetch_index_today(full, day_iso):
         rows = flatten(mx_data(f"{full}{day_iso}收盘价、涨跌幅、成交额"))
     except Exception:
         return None, None, None
+    best = [None, None, None]
     for r in rows:
         c, p = num(r.get("收盘价")), num(r.get("涨跌幅"))
+        if p is not None and best[1] is None:
+            best = [c, p, r.get("成交额")]
         if c is not None and p is not None:
             return c, p, r.get("成交额")
-    return None, None, None
+    return best[0], best[1], best[2]
 
 
 def fetch_market():
@@ -203,13 +206,15 @@ def fetch_market():
                         pct = num(r.get("涨跌幅"))
         except Exception:
             pass
-        if close is not None and pct is not None:
-            m["indices"][short] = {"name": full, "close": close, "pct": pct, "amount": amt}
+        if pct is not None:
+            m["indices"][short] = {"name": full, "close": close, "pct": pct, "amount": amt,
+                                   "date": dt.date.today().isoformat()}
             continue
         try:
             series = fetch_series(full, 60)
             closes = series.get("收盘价") or []
-            if len(closes) >= 2:
+            today = dt.date.today().isoformat()
+            if len(closes) >= 2 and closes[-1][0] == today:
                 day, c = closes[-1]
                 prev = closes[-2][1]
                 m["indices"][short] = {"name": full, "close": c,
@@ -284,7 +289,7 @@ def fetch_series(full, days=60):
                 n = num(v)
                 if d0 and n is not None:
                     pairs.append((d0, n))
-            pairs = [(a, b) for a, b in pairs if len(a) == 10]
+            pairs = [(str(a)[:10], b) for a, b in pairs if len(str(a)) >= 10]
             if pairs and len(pairs) > len(out.get(label, [])):
                 out[label] = sorted(pairs)
     return out
