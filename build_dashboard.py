@@ -205,7 +205,7 @@ def build(offline=False):
 
     context = []
     if d.get("vol20") is not None:
-        context.append(f"20 日年化波动率 {d['vol20']:.1f}%")
+        context.append(f"20 日年化波动率 {float(d['vol20']):.1f}%")
     if d.get("amount_change") is not None:
         context.append(f"沪市成交额较 5 日均值 {d['amount_change']:+.1f}%")
     if d.get("limit_up") is not None:
@@ -252,11 +252,13 @@ def build(offline=False):
     }
 
     if d.get("score") is not None:
+        _avg = f"{float(d['avg_pct']):+.2f}%" if d.get("avg_pct") is not None else "—"
+        _vol = f"{float(d['vol20']):.1f}%" if d.get("vol20") is not None else "—"
         data["conclusion"] = (
             f"{d.get('regime')}：情绪 {d.get('score')} 分（{d.get('label')}），恐慌 {d.get('panic')}"
-            f"（{d.get('panic_label')}）。指数均值 {d.get('avg_pct'):+.2f}%，"
+            f"（{d.get('panic_label')}）。指数均值 {_avg}，"
             f"涨 {d.get('up_count')} / 跌 {d.get('down_count')}，跌停 {d.get('limit_down')} 家，"
-            f"20 日年化波动率 {d.get('vol20')}%。"
+            f"20 日年化波动率 {_vol}。"
         )
     return data
 
