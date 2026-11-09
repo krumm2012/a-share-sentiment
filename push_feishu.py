@@ -88,11 +88,13 @@ def build_fields(r):
         "成交额较5日均值": r.get("amount_change"),
         "结论": r.get("conclusion") or auto_conclusion(r),
     }
-    if r.get("label"):
+    def _ok(v):
+        return v is not None and str(v).strip() not in ("", "—", "-")
+    if _ok(r.get("label")):
         f["情绪标签"] = [r["label"]]
-    if r.get("panic_label"):
+    if _ok(r.get("panic_label")):
         f["恐慌档位"] = [r["panic_label"]]
-    if r.get("regime"):
+    if _ok(r.get("regime")):
         f["组合定位"] = [r["regime"]]
     if r.get("social"):
         f["社媒情绪"] = r["social"]
