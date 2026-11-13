@@ -125,9 +125,13 @@ def mx_data(query, retries=3, use_cache=True):
         except Exception:
             obj = {"status": "ERROR", "raw": ((out or "") + (err or ""))[:300]}
         last = obj
-        if obj.get("status") != "ERROR":
+        _st = str(obj.get("status") or "")
+        if _st == "SUCCESS":
             cache["data"][query] = obj
             _save_cache(cache)
+            return obj
+        if _st not in ("ERROR", "AUTHORIZATION_REQUIRED"):
+            # 其他非成功态（如参数问题）不缓存，避免污染当日结果
             return obj
         if str(obj.get("errorCode")) == "42901" or obj.get("httpStatus") == 429:
             time.sleep(3 * (i + 1))
